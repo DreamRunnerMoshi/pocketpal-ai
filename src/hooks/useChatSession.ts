@@ -22,17 +22,27 @@ import {
   runAgent,
   searchWebTool,
   createReadEmailTool,
+  currentTimeTool,
 } from '../agent';
 import {getGmailAccessToken} from '../services/gmail/gmailAuth';
 
-/** Hint added to system prompt when agent has tools, so the model uses search_web and read_email instead of refusing. */
+/** Hint added to system prompt when agent has tools, so the model uses tools with the correct XML format. */
 const AGENT_TOOL_SYSTEM_HINT = [
   '',
-  'You have tools to get real-time information. You MUST use them when relevant—never say you do not have access to current data.',
-  'Tools:',
-  '- search_web(query): search the internet. Use it for: weather, news, sports scores, prices, or any fact that changes over time. Example: for "what\'s the weather?" call search_web with a query like "current weather [location]".',
-  '- read_email(query?, maxResults?): read the user\'s Gmail. Use it when they ask to check email, inbox, or unread messages.',
-  'Rule: For weather, news, or other live information, always call search_web first with an appropriate query, then answer from the results. Do not suggest the user go to a website—use the tool and give them the answer.',
+  'You have tools. You MUST call them when relevant. To call a tool, output ONLY this XML format (no other text before or after):',
+  '',
+  'Format: <tool_call><parameter=PARAM_NAME>value</parameter></tool_call>',
+  '',
+  'Tools and their parameters:',
+  '1) search_web — required: query. Example: <tool_call><parameter=query>current weather Bangkok</parameter></tool_call>',
+  '2) read_email — optional: query, maxResults. Example: <tool_call><parameter=query>is:unread</parameter><parameter=maxResults>5</parameter></tool_call>',
+  '3) current_time — optional: timezone. For "what time is it?" or "what\'s the date?" use: <tool_call><parameter=timezone></parameter></tool_call> or just <tool_call></tool_call>',
+  '',
+  'Rules:',
+  '- Always include the correct parameter names (query for search_web, timezone for current_time).',
+  '- For search_web the query must not be empty; put the user\'s question or a short search phrase inside <parameter=query>...</parameter>.',
+  '- For current_time you can use an empty <parameter=timezone></parameter> or omit parameters.',
+  '- Output exactly one tool call in the format above when you need to use a tool; then you will receive the result and can reply to the user.',
 ].join('\n');
 
 /** Convert session history to LangChain messages (system + history + new user message built separately). */
@@ -228,7 +238,7 @@ export const useChatSession = (
       cleanCompletionParams.reasoning_format = 'auto';
     }
 
-    const tools = [searchWebTool, createReadEmailTool(getGmailAccessToken)];
+    const tools = [searchWebTool, createReadEmailTool(getGmailAccessToken), currentTimeTool];
     const model = new LlamaRNChatModel({
       context,
       completionParams: cleanCompletionParams,

@@ -22,22 +22,40 @@ function truncateForLog(s: string, maxLen = 400): string {
   return s.slice(0, maxLen) + '...[truncated]';
 }
 
+/** Detect if the user message is asking for current time or date. */
+function looksLikeTimeDateQuestion(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  const patterns = [
+    /what('s|\s+is)\s+the\s+time/,
+    /what\s+time\s+is\s+it/,
+    /current\s+time/,
+    /what('s|\s+is)\s+the\s+date/,
+    /what('s|\s+is)\s+today('s)?\s+date/,
+    /what\s+day\s+is\s+it/,
+    /today('s)?\s+date/,
+    /current\s+date/,
+    /time\s+now/,
+    /date\s+today/,
+  ];
+  return patterns.some(p => p.test(lower));
+}
+
 /**
  * Parse Qwen-style XML tool call from model content when native tool_calls are empty.
- * Example: <tool_call>\n<parameter=query>\nBangkok weather\n</parameter>\n</function>\n</tool_call>
- * Returns synthetic tool calls so we can execute them in the agent loop.
+ * Handles <parameter=name>value</parameter> and infers current_time when tool_call is empty and user asked about time/date.
  */
 function parseToolCallFromContent(
   content: string,
   availableToolNames: string[],
+  lastUserMessage?: string,
 ): Array<{name: string; id: string; args: Record<string, unknown>}> | null {
   const trimmed = content.trim();
-  if (!trimmed.includes('<tool_call>') || !trimmed.includes('</tool_call>')) {
-    return null;
-  }
-  const synthetic: Array<{name: string; id: string; args: Record<string, unknown>}> = [];
+  const hasToolCall =
+    trimmed.includes('<tool_call>') &&
+    (trimmed.includes('</tool_call>') || trimmed.includes('</function>'));
+  if (!hasToolCall) return null;
+
   const args: Record<string, string> = {};
-  // Match <parameter=query>value</parameter> or <parameter name="query">value</parameter>
   const paramRegex = /<parameter\s*(?:=\s*(\w+)|name\s*=\s*["']?(\w+)["']?)\s*>([\s\S]*?)<\/parameter>/gi;
   let m: RegExpExecArray | null;
   while ((m = paramRegex.exec(trimmed)) !== null) {
@@ -45,23 +63,43 @@ function parseToolCallFromContent(
     const value = (m[3] ?? '').trim();
     if (key) args[key] = value;
   }
-  if (Object.keys(args).length === 0) return null;
-  const queryVal = args.query ?? args.q;
-  if (queryVal !== undefined && availableToolNames.includes('search_web')) {
-    synthetic.push({
-      name: 'search_web',
-      id: `synthetic_search_${Date.now()}`,
-      args: {query: queryVal},
-    });
+
+  if (Object.keys(args).length > 0) {
+    const queryVal = (args.query ?? args.q)?.trim();
+    const timezoneVal = (args.timezone ?? args.tz)?.trim();
+    const hasMaxResults = 'maxresults' in args || 'max_results' in args;
+
+    if (queryVal !== undefined && queryVal.length > 0 && availableToolNames.includes('search_web') && !hasMaxResults) {
+      return [{ name: 'search_web', id: `synthetic_search_${Date.now()}`, args: { query: queryVal } }];
+    }
+    if (availableToolNames.includes('current_time') && ('timezone' in args || 'tz' in args)) {
+      return [{ name: 'current_time', id: `synthetic_time_${Date.now()}`, args: timezoneVal ? { timezone: timezoneVal } : {} }];
+    }
+    if (availableToolNames.includes('read_email') && (hasMaxResults || queryVal !== undefined)) {
+      const maxResults = args.maxresults ?? args.max_results;
+      const num = maxResults ? parseInt(String(maxResults), 10) : 5;
+      return [{
+        name: 'read_email',
+        id: `synthetic_email_${Date.now()}`,
+        args: { query: queryVal ?? '', maxResults: isNaN(num) ? 5 : Math.min(20, Math.max(1, num)) },
+      }];
+    }
+    if (queryVal !== undefined && queryVal.length > 0 && availableToolNames.includes('search_web')) {
+      return [{ name: 'search_web', id: `synthetic_search_${Date.now()}`, args: { query: queryVal } }];
+    }
+    return null;
   }
-  if (synthetic.length === 0 && queryVal !== undefined) {
-    synthetic.push({
-      name: 'search_web',
-      id: `synthetic_search_${Date.now()}`,
-      args: {query: queryVal},
-    });
+
+  if (lastUserMessage && looksLikeTimeDateQuestion(lastUserMessage) && availableToolNames.includes('current_time')) {
+    return [
+      {
+        name: 'current_time',
+        id: `synthetic_time_${Date.now()}`,
+        args: {},
+      },
+    ];
   }
-  return synthetic.length > 0 ? synthetic : null;
+  return null;
 }
 
 export type RunAgentStreamingOptions = {
@@ -108,7 +146,11 @@ export async function runAgent(
     const toolCalls = aiMessage.tool_calls ?? [];
 
     const toolNames = tools.map(t => t.name);
-    const syntheticCalls = toolCalls.length === 0 ? parseToolCallFromContent(content, toolNames) : null;
+    const lastHuman = currentMessages.filter((m: BaseMessage) => m._getType() === 'human').pop();
+    const lastUserMessage = lastHuman
+      ? (typeof lastHuman.content === 'string' ? lastHuman.content : String((lastHuman as any).content ?? ''))
+      : undefined;
+    const syntheticCalls = toolCalls.length === 0 ? parseToolCallFromContent(content, toolNames, lastUserMessage) : null;
     const effectiveToolCalls =
       toolCalls.length > 0
         ? toolCalls.map(tc => ({name: tc.name, id: tc.id ?? `call_${tc.name}_${Date.now()}`, args: typeof tc.args === 'string' ? (() => { try { return JSON.parse(tc.args); } catch { return {query: tc.args}; } })() : tc.args}))
@@ -132,6 +174,18 @@ export async function runAgent(
       console.log('[Agent] no tool calls — returning final answer, length:', finalText.length);
       return {text: finalText || '(No response)'};
     }
+
+    // Replace streamed intro text with a short placeholder so the user sees one clear result (the final answer), not the model's preamble
+    const placeholders: Record<string, string> = {
+      search_web: 'Searching…',
+      read_email: 'Checking email…',
+      current_time: 'Getting current time…',
+    };
+    const placeholder =
+      effectiveToolCalls.length > 0 && effectiveToolCalls[0].name in placeholders
+        ? placeholders[effectiveToolCalls[0].name as keyof typeof placeholders]
+        : 'Looking that up…';
+    streamingOptions?.onToken(placeholder);
 
     const toolResults: ToolMessage[] = [];
     for (const tc of effectiveToolCalls) {
