@@ -2,159 +2,90 @@ import React, {useRef} from 'react';
 
 import {toJS, runInAction} from 'mobx';
 
+import {SystemMessage, HumanMessage, AIMessage} from '@langchain/core/messages';
+
 import {chatSessionRepository} from '../repositories/ChatSessionRepository';
 
 import {randId} from '../utils';
 import {L10nContext} from '../utils';
+import {assistantId} from '../utils/chat';
 import {chatSessionStore, modelStore, palStore, uiStore} from '../store';
 
 import {MessageType, User} from '../utils/types';
 import {createMultimodalWarning} from '../utils/errors';
 import {resolveSystemMessages} from '../utils/systemPromptResolver';
-import {convertToChatMessages, removeThinkingParts} from '../utils/chat';
+import {removeThinkingParts} from '../utils/chat';
 import {activateKeepAwake, deactivateKeepAwake} from '../utils/keepAwake';
+import {toApiCompletionParams, CompletionParams} from '../utils/completionTypes';
 import {
-  toApiCompletionParams,
-  CompletionParams,
-} from '../utils/completionTypes';
-import {searchWeb} from '../api/search';
-import {SERPER_API_KEY} from '@env';
+  LlamaRNChatModel,
+  runAgent,
+  searchWebTool,
+  createReadEmailTool,
+} from '../agent';
+import {getGmailAccessToken} from '../services/gmail/gmailAuth';
 
-// Helper function to prepare completion parameters using OpenAI-compatible messages API
-const prepareCompletion = async ({
-  imageUris,
-  message,
-  systemMessages,
-  context,
-  assistant,
-  conversationIdRef,
-  isMultimodalEnabled,
-  l10n,
-  currentMessages,
-}: {
-  imageUris: string[];
-  message: MessageType.PartialText;
-  systemMessages: Array<{role: 'system'; content: string}>;
-  context: any;
-  assistant: User;
-  conversationIdRef: string;
-  isMultimodalEnabled: boolean;
-  l10n: any;
-  currentMessages: MessageType.Any[];
-}) => {
-  const sessionCompletionSettings =
-    await chatSessionStore.getCurrentCompletionSettings();
-  const stopWords = toJS(modelStore.activeModel?.stopWords);
+/** Hint added to system prompt when agent has tools, so the model uses search_web and read_email instead of refusing. */
+const AGENT_TOOL_SYSTEM_HINT = [
+  '',
+  'You have tools to get real-time information. You MUST use them when relevant—never say you do not have access to current data.',
+  'Tools:',
+  '- search_web(query): search the internet. Use it for: weather, news, sports scores, prices, or any fact that changes over time. Example: for "what\'s the weather?" call search_web with a query like "current weather [location]".',
+  '- read_email(query?, maxResults?): read the user\'s Gmail. Use it when they ask to check email, inbox, or unread messages.',
+  'Rule: For weather, news, or other live information, always call search_web first with an appropriate query, then answer from the results. Do not suggest the user go to a website—use the tool and give them the answer.',
+].join('\n');
 
-  // Check if we have images and if multimodal is enabled
-  const hasImages = imageUris && imageUris.length > 0;
-
-  // Create user message content - use array format only for multimodal, string for text-only
-  let userMessageContent: any;
-
-  if (hasImages && isMultimodalEnabled) {
-    // Multimodal: use array format with text and images
-    userMessageContent = [
-      {
-        type: 'text',
-        text: message.text,
-      },
-      ...imageUris.map(path => ({
-        type: 'image_url',
-        image_url: {url: path}, // llama.rn handles file:// prefix removal
-      })),
-    ];
-  } else {
-    // Text-only: use simple string format
-    userMessageContent = message.text;
-
-    // Show warning if user tried to send images but multimodal is not enabled
-    if (hasImages && !isMultimodalEnabled) {
-      uiStore.setChatWarning(
-        createMultimodalWarning(l10n.chat.multimodalNotEnabled),
-      );
+/** Convert session history to LangChain messages (system + history + new user message built separately). */
+function sessionToLangChainMessages(
+  currentMessages: MessageType.Any[],
+  includeThinkingInContext: boolean | undefined,
+): (SystemMessage | HumanMessage | AIMessage)[] {
+  const includeThinking = includeThinkingInContext !== false;
+  const out: (SystemMessage | HumanMessage | AIMessage)[] = [];
+  for (const msg of currentMessages) {
+    if (msg.type !== 'text') continue;
+    const textMsg = msg as MessageType.Text;
+    const text = textMsg.text?.trim() ?? '';
+    if (!text) continue;
+    const isAssistant = textMsg.author?.id === assistantId;
+    if (isAssistant) {
+      const content = includeThinking ? text : removeThinkingParts(text);
+      out.push(new AIMessage(content));
+    } else {
+      out.push(new HumanMessage(text));
     }
   }
+  return out;
+}
 
-  // Convert chat session messages to llama.rn format
-  let chatMessages = convertToChatMessages(
-    currentMessages.filter(msg => msg.type !== 'image'),
-    isMultimodalEnabled,
-  );
-
-  // Check if we should include thinking parts in the context
-  const includeThinkingInContext =
-    (sessionCompletionSettings as CompletionParams)
-      ?.include_thinking_in_context !== false;
-
-  // If the user has disabled including thinking parts, remove them from assistant messages
-  if (!includeThinkingInContext) {
-    chatMessages = chatMessages.map(msg => {
-      if (msg.role === 'assistant' && typeof msg.content === 'string') {
-        return {
-          ...msg,
-          content: removeThinkingParts(msg.content),
-        };
-      }
-      return msg;
-    });
-  }
-
-  // Create the messages array for llama.rn - same format for all cases
-  const messages = [
-    ...systemMessages,
-    ...chatMessages,
-    {
-      role: 'user',
-      content: userMessageContent,
-    },
-  ];
-
-  // Create completion params with app-specific properties
-  const completionParamsWithAppProps = {
-    ...sessionCompletionSettings,
-    messages,
-    stop: stopWords,
-  };
-
-  // Strip app-specific properties before passing to llama.rn
-  const cleanCompletionParams = toApiCompletionParams(
-    completionParamsWithAppProps as CompletionParams,
-  );
-
-  // If enable_thinking is true, set reasoning_format to 'auto'
-  // This returns the reasoning content in a separate field (reasoning_content)
-  if (cleanCompletionParams.enable_thinking) {
-    cleanCompletionParams.reasoning_format = 'auto';
-  }
-
-  // Create empty assistant message in both database and store
+/** Create empty assistant message and add to session; returns messageInfo for updates. */
+async function createEmptyAssistantMessage(
+  context: {id: number},
+  assistant: User,
+  conversationIdRef: string,
+  hasImages: boolean,
+): Promise<{createdAt: number; id: string; sessionId: string}> {
   const createdAt = Date.now();
   const emptyMessage: MessageType.Text = {
     author: assistant,
-    createdAt: createdAt,
-    id: '', // Will be set by addMessageToCurrentSession
+    createdAt,
+    id: '',
     text: '',
     type: 'text',
     metadata: {
       contextId: context.id,
       conversationId: conversationIdRef,
       copyable: true,
-      multimodal: hasImages, // Simple check based on presence of images
+      multimodal: hasImages,
     },
   };
-
-  // Use store method to ensure message is added to both database AND MobX observable store
   await chatSessionStore.addMessageToCurrentSession(emptyMessage);
-
-  const messageInfo = {
+  return {
     createdAt,
-    id: emptyMessage.id, // This is now set by addMessageToCurrentSession
+    id: emptyMessage.id,
     sessionId: chatSessionStore.activeSessionId!,
   };
-
-  return {cleanCompletionParams, messageInfo};
-};
+}
 
 export const useChatSession = (
   currentMessageInfo: React.MutableRefObject<{
@@ -197,6 +128,11 @@ export const useChatSession = (
     const hasImages = imageUris && imageUris.length > 0;
 
     const isMultimodalEnabled = await modelStore.isMultimodalEnabled();
+    if (hasImages && !isMultimodalEnabled) {
+      uiStore.setChatWarning(
+        createMultimodalWarning(l10n.chat.multimodalNotEnabled),
+      );
+    }
 
     // Get the current session messages BEFORE adding the new user message
     // Use toJS to get a snapshot and avoid MobX reactivity issues
@@ -234,134 +170,87 @@ export const useChatSession = (
       s => s.id === chatSessionStore.activeSessionId,
     );
 
-    // Resolve system messages using utility function
+    // Resolve system messages for agent context
     const pal = activeSession?.activePalId
       ? palStore.pals.find(p => p.id === activeSession.activePalId)
       : null;
-
-    let systemMessages = resolveSystemMessages({
+    const systemMessages = resolveSystemMessages({
       pal,
       model: modelStore.activeModel,
     });
+    const systemContentWithToolHint =
+      systemMessages.length > 0
+        ? systemMessages[0].content + AGENT_TOOL_SYSTEM_HINT
+        : AGENT_TOOL_SYSTEM_HINT.trim();
 
-    // If web search is enabled, fetch results and prepend as system context
-    if (message.useWebSearch && message.text.trim()) {
-      const webResults = await searchWeb(message.text.trim(), SERPER_API_KEY);
-      if (webResults) {
-        const webContextMessage: {role: 'system'; content: string} = {
-          role: 'system',
-          content: `Relevant information from the web (use to inform your answer, cite when appropriate):\n\n${webResults}`,
-        };
-        systemMessages = [webContextMessage, ...systemMessages];
-      }
-    }
-
-    // Prepare completion parameters and create message record
-    const {cleanCompletionParams, messageInfo} = await prepareCompletion({
-      imageUris: imageUris || [],
-      message,
-      systemMessages,
+    const sessionCompletionSettings =
+      await chatSessionStore.getCurrentCompletionSettings();
+    const includeThinkingInContext: boolean | undefined = (
+      sessionCompletionSettings as CompletionParams
+    )?.include_thinking_in_context;
+    const messageInfo = await createEmptyAssistantMessage(
       context,
       assistant,
-      conversationIdRef: conversationIdRef.current,
-      isMultimodalEnabled,
-      l10n,
-      currentMessages,
-    });
-
+      conversationIdRef.current,
+      Boolean(hasImages && isMultimodalEnabled),
+    );
     currentMessageInfo.current = messageInfo;
 
+    const langChainMessages = [
+      new SystemMessage(systemContentWithToolHint),
+      ...sessionToLangChainMessages(
+        currentMessages,
+        includeThinkingInContext !== false,
+      ),
+      hasImages && isMultimodalEnabled && imageUris?.length
+        ? new HumanMessage({
+            content: [
+              {type: 'text', text: message.text},
+              ...imageUris.map((path: string) => ({
+                type: 'image_url' as const,
+                image_url: {url: path},
+              })),
+            ],
+          })
+        : new HumanMessage(message.text),
+    ];
+
+    const stopWords = toJS(modelStore.activeModel?.stopWords);
+    const completionParamsWithAppProps = {
+      ...sessionCompletionSettings,
+      emit_partial_completion: false,
+      stop: stopWords,
+    };
+    const cleanCompletionParams = toApiCompletionParams(
+      completionParamsWithAppProps as CompletionParams,
+    );
+    if (cleanCompletionParams.enable_thinking) {
+      cleanCompletionParams.reasoning_format = 'auto';
+    }
+
+    const tools = [searchWebTool, createReadEmailTool(getGmailAccessToken)];
+    const model = new LlamaRNChatModel({
+      context,
+      completionParams: cleanCompletionParams,
+      tools,
+      stopWords,
+    });
+
     try {
-      // Track time to first token
-      const completionStartTime = Date.now();
-      let timeToFirstToken: number | null = null;
-
-      // Create the completion promise and register it with modelStore
-      // This enables safe context release by waiting for the promise to finish
-      const completionPromise = context.completion(
-        cleanCompletionParams,
-        data => {
-          if (currentMessageInfo.current) {
-            // Capture time to first token on the first token received
-            if (timeToFirstToken === null && (data.token || data.content)) {
-              timeToFirstToken = Date.now() - completionStartTime;
-            }
-
-            if (!modelStore.isStreaming) {
-              modelStore.setIsStreaming(true);
-            }
-
-            // Use content and reasoning_content from the streaming data
-            // llama.rn already separates these for us when enable_thinking is true
-            const {content = '', reasoning_content: reasoningContent} = data;
-
-            // Update message with the separated content
-            if (content || reasoningContent) {
-              // Build the update object
-              const update: any = {
-                metadata: {
-                  partialCompletionResult: {
-                    reasoning_content: reasoningContent,
-                    content: content.replace(/^\s+/, ''),
-                  },
-                },
-              };
-
-              // Only update text if we have actual content
-              if (content) {
-                update.text = content.replace(/^\s+/, '');
-              }
-
-              // Use the store's streaming update method which properly triggers reactivity
-              chatSessionStore.updateMessageStreaming(
-                currentMessageInfo.current.id,
-                currentMessageInfo.current.sessionId,
-                update,
-              );
-            }
-          }
-        },
-      );
-
-      // Register the promise so releaseContext can wait for it
-      modelStore.registerCompletionPromise(completionPromise);
-
-      // Await the completion
-      const result = await completionPromise;
-
-      // Clear the promise after completion finishes
+      const agentPromise = runAgent(model, tools, langChainMessages);
+      modelStore.registerCompletionPromise(agentPromise);
+      const {text: finalText} = await agentPromise;
       modelStore.clearCompletionPromise();
 
-      // Log completion result with time to first token for debugging
-      if (__DEV__) {
-        console.log('Completion result:', {
-          ...result.timings,
-          time_to_first_token_ms: timeToFirstToken,
-          reasoning_content: result.reasoning_content,
-          content: result.content,
-          text: result.text,
-        });
-        console.log('result', result);
-      }
-
-      // Update final completion metadata
       await chatSessionStore.updateMessage(
         currentMessageInfo.current.id,
         currentMessageInfo.current.sessionId,
         {
+          text: finalText,
           metadata: {
-            timings: {
-              ...result.timings,
-              time_to_first_token_ms: timeToFirstToken,
-            },
             copyable: true,
-            // Add multimodal flag if this was a multimodal completion
             multimodal: hasImages && isMultimodalEnabled,
-            // Save the final completion result with reasoning_content
-            completionResult: {
-              reasoning_content: result.reasoning_content,
-              content: result.text,
-            },
+            completionResult: {content: finalText},
           },
         },
       );
@@ -369,9 +258,8 @@ export const useChatSession = (
       modelStore.setIsStreaming(false);
       chatSessionStore.setIsGenerating(false);
     } catch (error) {
-      // Clear the promise on error too
       modelStore.clearCompletionPromise();
-      console.error('Completion error:', error);
+      console.error('Agent/completion error:', error);
       modelStore.setInferencing(false);
       modelStore.setIsStreaming(false);
       chatSessionStore.setIsGenerating(false);

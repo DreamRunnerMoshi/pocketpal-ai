@@ -23,7 +23,6 @@ import {
   VideoRecorderIcon,
   PlusIcon,
   AtomIcon,
-  GlobeIcon,
 } from '../../assets/icons';
 
 import {useTheme} from '../../hooks';
@@ -72,8 +71,6 @@ export interface ChatInputTopLevelProps {
   isThinkingEnabled?: boolean;
   /** Callback when thinking toggle is pressed */
   onThinkingToggle?: (enabled: boolean) => void;
-  /** Whether to show the web search toggle button */
-  showWebSearchToggle?: boolean;
 }
 
 export interface ChatInputAdditionalProps {
@@ -91,8 +88,6 @@ export interface ChatInputAdditionalProps {
   isThinkingEnabled?: boolean;
   /** Callback when thinking toggle is pressed */
   onThinkingToggle?: (enabled: boolean) => void;
-  /** Whether to show the web search toggle button */
-  showWebSearchToggle?: boolean;
 }
 
 export type ChatInputProps = ChatInputTopLevelProps & ChatInputAdditionalProps;
@@ -127,7 +122,6 @@ export const ChatInput = observer(
     showThinkingToggle = false,
     isThinkingEnabled = false,
     onThinkingToggle,
-    showWebSearchToggle = true,
   }: ChatInputProps) => {
     const l10n = React.useContext(L10nContext);
     const theme = useTheme();
@@ -154,7 +148,6 @@ export const ChatInput = observer(
       onDefaultImagesChange ?? setInternalSelectedImages;
     // State for image upload menu
     const [showImageUploadMenu, setShowImageUploadMenu] = React.useState(false);
-    const [isWebSearchEnabled, setIsWebSearchEnabled] = React.useState(false);
     // State for showing "model not loaded" helper text
     const [showModelWarning, setShowModelWarning] = React.useState(false);
     const isEditMode = chatSessionStore.isEditMode;
@@ -223,12 +216,10 @@ export const ChatInput = observer(
           return;
         }
 
-        // Include imageUris and useWebSearch in the message object
         onSendPress({
           text: trimmedValue,
           type: 'text',
           imageUris: selectedImages.length > 0 ? selectedImages : undefined,
-          useWebSearch: isWebSearchEnabled,
         });
         setText('');
         // Clear selected images after sending
@@ -583,41 +574,6 @@ export const ChatInput = observer(
                         : {color: onSurfaceColorVariant},
                     ]}>
                     {l10n.components.chatInput.thinkingToggle.thinkText}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              {showWebSearchToggle && !isCameraActive && (
-                <TouchableOpacity
-                  style={[
-                    styles.thinkingToggleLeft,
-                    isWebSearchEnabled && {backgroundColor: onSurfaceColor},
-                    {borderColor: onSurfaceColorVariant},
-                  ]}
-                  onPress={() => setIsWebSearchEnabled(prev => !prev)}
-                  accessibilityLabel={
-                    isWebSearchEnabled
-                      ? l10n.components.chatInput.webSearchToggle.disableWebSearch
-                      : l10n.components.chatInput.webSearchToggle.enableWebSearch
-                  }
-                  accessibilityRole="button">
-                  <GlobeIcon
-                    width={14}
-                    height={14}
-                    stroke={
-                      isWebSearchEnabled
-                        ? inputBackgroundColor
-                        : onSurfaceColorVariant
-                    }
-                    strokeWidth={2}
-                  />
-                  <Text
-                    style={[
-                      styles.thinkingToggleText,
-                      isWebSearchEnabled
-                        ? {color: inputBackgroundColor}
-                        : {color: onSurfaceColorVariant},
-                    ]}>
-                    {l10n.components.chatInput.webSearchToggle.webSearchText}
                   </Text>
                 </TouchableOpacity>
               )}

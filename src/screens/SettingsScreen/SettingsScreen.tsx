@@ -58,6 +58,7 @@ import {
 import {t} from '../../locales';
 import {checkGpuSupport} from '../../utils/deviceCapabilities';
 import {exportLegacyChatSessions} from '../../utils/exportUtils';
+import {requestGmailScope} from '../../services/gmail/gmailAuth';
 import {getDeviceOptions, DeviceOption} from '../../utils/deviceSelection';
 import {
   inferBackendType,
@@ -995,6 +996,31 @@ export const SettingsScreen: React.FC = observer(() => {
                     </View>
                   </>
                 )}
+
+                <Divider />
+                <View style={styles.switchContainer}>
+                  <View style={styles.textContainer}>
+                    <Text variant="titleMedium" style={styles.textLabel}>
+                      {l10n.settings.connectGmail}
+                    </Text>
+                    <Text variant="labelSmall" style={styles.textDescription}>
+                      {l10n.settings.connectGmailDescription}
+                    </Text>
+                  </View>
+                  <Button
+                    mode="outlined"
+                    onPress={async () => {
+                      const ok = await requestGmailScope();
+                      Alert.alert(
+                        ok
+                          ? l10n.settings.connectGmailSuccess
+                          : l10n.settings.connectGmailError,
+                      );
+                    }}
+                    style={styles.menuButton}>
+                    {l10n.settings.connectGmail}
+                  </Button>
+                </View>
               </View>
             </Card.Content>
           </Card>
