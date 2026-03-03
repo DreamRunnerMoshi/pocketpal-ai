@@ -118,10 +118,11 @@ export class LlamaRNChatModel extends BaseChatModel<BaseChatModelCallOptions> {
     }
 
     const llamaMessages = langChainMessagesToLlamaRN(messages);
+    const streamingCallback = (options as any).streamingCallback as ((token: string) => void) | undefined;
     const params: Record<string, any> = {
       ...this.completionParams,
       messages: llamaMessages,
-      emit_partial_completion: false,
+      emit_partial_completion: !!streamingCallback,
     };
 
     if (this.stopWords?.length) params.stop = this.stopWords;
@@ -135,8 +136,13 @@ export class LlamaRNChatModel extends BaseChatModel<BaseChatModelCallOptions> {
       messageCount: llamaMessages.length,
       toolsCount: this.tools.length,
       toolNames: this.tools.map(t => t.name),
+      streaming: !!streamingCallback,
     });
-    const result = await ctx.completion(params);
+    const result = streamingCallback
+      ? await ctx.completion(params, (data: {token?: string}) => {
+          if (data?.token) streamingCallback(data.token);
+        })
+      : await ctx.completion(params);
     const rawToolCalls = result.tool_calls ?? [];
     console.log('[LlamaRNChatModel] completion response:', {
       hasContent: !!(result.content ?? result.text),

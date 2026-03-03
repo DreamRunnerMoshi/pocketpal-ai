@@ -64,28 +64,45 @@ function parseToolCallFromContent(
   return synthetic.length > 0 ? synthetic : null;
 }
 
+export type RunAgentStreamingOptions = {
+  onToken: (accumulatedText: string) => void;
+};
+
 /**
  * Run the agent loop: call the model with the current messages; if it returns tool_calls,
  * execute each tool and append ToolMessages, then repeat. Stops when the model returns
  * no tool_calls or we hit max steps. Returns the final text reply.
- *
- * If the model does not support tool calling, the first response is treated as the final answer.
+ * When streamingOptions is provided, tokens are streamed to onToken (per turn).
  */
 export async function runAgent(
   model: LlamaRNChatModel,
   tools: StructuredToolInterface[],
   messages: BaseMessage[],
+  streamingOptions?: RunAgentStreamingOptions,
 ): Promise<{text: string; error?: string}> {
   const toolMap = new Map(tools.map(t => [t.name, t]));
   let currentMessages: BaseMessage[] = [...messages];
   let steps = 0;
 
-  console.log('[Agent] runAgent started', { messageCount: messages.length, toolNames: tools.map(t => t.name) });
+  console.log('[Agent] runAgent started', { messageCount: messages.length, toolNames: tools.map(t => t.name), streaming: !!streamingOptions?.onToken });
 
   while (steps < MAX_AGENT_STEPS) {
     steps += 1;
+    let streamBuffer = '';
+    const invokeOptions =
+      streamingOptions?.onToken
+        ? {
+            streamingCallback: (token: string) => {
+              streamBuffer += token;
+              streamingOptions.onToken(streamBuffer);
+            },
+          }
+        : undefined;
+
+    if (steps > 1) streamingOptions?.onToken('');
+
     console.log('[Agent] step', steps, 'invoking model with', currentMessages.length, 'messages');
-    const result = await model.invoke(currentMessages);
+    const result = await model.invoke(currentMessages, invokeOptions as any);
     const aiMessage = result as AIMessage;
     const content = typeof aiMessage.content === 'string' ? aiMessage.content : String(aiMessage.content ?? '');
     const toolCalls = aiMessage.tool_calls ?? [];
