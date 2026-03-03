@@ -27,8 +27,11 @@ export function createReadEmailTool(
         .describe('Maximum number of emails to return (default 5)'),
     }),
     func: async ({query, maxResults}) => {
+      console.log('[read_email] called with query:', query ?? '(none)', 'maxResults:', maxResults);
       const accessToken = await getAccessToken();
-      return fetchMessagesSummary(accessToken, query, maxResults);
+      const result = await fetchMessagesSummary(accessToken, query, maxResults);
+      console.log('[read_email] result length:', result.length, 'preview:', result.slice(0, 300) + (result.length > 300 ? '...' : ''));
+      return result;
     },
   });
 }

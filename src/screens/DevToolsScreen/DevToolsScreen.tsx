@@ -9,13 +9,14 @@ import {DrawerNavigationProp} from '@react-navigation/drawer';
 import {useTheme} from '../../hooks';
 import {createStyles} from './styles';
 import {chatSessionRepository} from '../../repositories/ChatSessionRepository';
-import {TestCompletionScreen, DatabaseInspectorScreen} from './screens';
+import {TestCompletionScreen, DatabaseInspectorScreen, LogViewerScreen} from './screens';
 
 // Define the stack navigator param list
 type DevToolsStackParamList = {
   DevToolsHome: undefined;
   TestCompletion: undefined;
   DatabaseInspector: undefined;
+  LogViewer: undefined;
 };
 
 const Stack = createStackNavigator<DevToolsStackParamList>();
@@ -101,6 +102,25 @@ const DevToolsHomeScreen: React.FC = () => {
                 onPress={() => navigation.navigate('TestCompletion' as never)}
                 style={styles.button}>
                 Open Test Completion
+              </Button>
+            </View>
+          </Card.Content>
+        </Card>
+
+        {/* Log Viewer Card */}
+        <Card elevation={1} style={styles.card}>
+          <Card.Title title="View Logs" />
+          <Card.Content>
+            <Text variant="bodyMedium" style={styles.description}>
+              See console.log / warn / error when Xcode debugger doesn't show
+              them. Logs are captured in memory; use Copy or Share to save.
+            </Text>
+            <View style={styles.buttonContainer}>
+              <Button
+                mode="contained"
+                onPress={() => navigation.navigate('LogViewer' as never)}
+                style={styles.button}>
+                Open Log Viewer
               </Button>
             </View>
           </Card.Content>
@@ -224,6 +244,13 @@ export const DevToolsScreen: React.FC = () => {
         component={DatabaseInspectorScreen}
         options={{
           title: 'Database Inspector',
+        }}
+      />
+      <Stack.Screen
+        name="LogViewer"
+        component={LogViewerScreen}
+        options={{
+          title: 'View Logs',
         }}
       />
     </Stack.Navigator>

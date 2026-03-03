@@ -236,11 +236,13 @@ export const useChatSession = (
       stopWords,
     });
 
+    console.log('[useChatSession] starting agent with', langChainMessages.length, 'messages, last user message preview:', typeof message.text === 'string' ? message.text.slice(0, 120) : '(non-string)');
     try {
       const agentPromise = runAgent(model, tools, langChainMessages);
       modelStore.registerCompletionPromise(agentPromise);
       const {text: finalText} = await agentPromise;
       modelStore.clearCompletionPromise();
+      console.log('[useChatSession] agent finished, final text length:', finalText?.length ?? 0);
 
       await chatSessionStore.updateMessage(
         currentMessageInfo.current.id,

@@ -141,6 +141,9 @@ export const MarkdownView: React.FC<MarkdownViewProps> = React.memo(
 
     const contentWidth = useMemo(() => _maxWidth, [_maxWidth]);
 
+    // Avoid "no custom renderer for tag tool_call" when model outputs XML-like tool call in message
+    const ignoredDomTags = useMemo(() => ['tool_call', 'parameter', 'function'], []);
+
     const htmlContent = useMemo(
       () => marked(markdownText) as string,
       [markdownText],
@@ -172,6 +175,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = React.memo(
               systemFonts={systemFonts}
               renderers={renderers}
               customHTMLElementModels={tableHTMLElementModels}
+              ignoredDomTags={ignoredDomTags}
             />
           </ThinkingBubble>
         )}
@@ -186,6 +190,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = React.memo(
             systemFonts={systemFonts}
             renderers={renderers}
             customHTMLElementModels={tableHTMLElementModels}
+            ignoredDomTags={ignoredDomTags}
           />
         )}
       </View>

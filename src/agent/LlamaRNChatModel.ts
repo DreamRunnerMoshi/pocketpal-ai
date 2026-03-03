@@ -131,9 +131,21 @@ export class LlamaRNChatModel extends BaseChatModel<BaseChatModelCallOptions> {
       params.jinja = true;
     }
 
+    console.log('[LlamaRNChatModel] completion request:', {
+      messageCount: llamaMessages.length,
+      toolsCount: this.tools.length,
+      toolNames: this.tools.map(t => t.name),
+    });
     const result = await ctx.completion(params);
+    const rawToolCalls = result.tool_calls ?? [];
+    console.log('[LlamaRNChatModel] completion response:', {
+      hasContent: !!(result.content ?? result.text),
+      contentLength: (result.content ?? result.text ?? '').length,
+      rawToolCallsCount: rawToolCalls.length,
+      rawToolCalls: rawToolCalls.map((tc: any) => ({ name: tc.function?.name, argsPreview: typeof tc.function?.arguments === 'string' ? tc.function.arguments.slice(0, 100) : '(object)' })),
+    });
 
-    const toolCalls = (result.tool_calls ?? []).map((tc: any) => ({
+    const toolCalls = rawToolCalls.map((tc: any) => ({
       id: tc.id ?? `call_${tc.function?.name ?? 'unknown'}_${Date.now()}`,
       name: tc.function?.name ?? 'unknown',
       args: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments ?? {}),

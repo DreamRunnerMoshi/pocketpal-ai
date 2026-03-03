@@ -28,6 +28,7 @@ export async function searchWeb(
   apiKey: string | undefined,
 ): Promise<string> {
   if (!apiKey || !apiKey.trim()) {
+    console.warn('[search API] SERPER_API_KEY missing or empty');
     return '[Web search is not configured. Add SERPER_API_KEY to .env]';
   }
 
@@ -37,6 +38,7 @@ export async function searchWeb(
   }
 
   try {
+    console.log('[search API] Serper request query:', trimmed);
     const response = await axios.post<SerperSearchResponse>(
       `${SERPER_BASE}/search`,
       { q: trimmed, num: MAX_RESULTS },
@@ -50,6 +52,7 @@ export async function searchWeb(
     );
 
     const organic = response.data?.organic;
+    console.log('[search API] Serper response organic count:', organic?.length ?? 0);
     if (!organic || !Array.isArray(organic) || organic.length === 0) {
       return '[No web results found for this query.]';
     }
@@ -69,7 +72,7 @@ export async function searchWeb(
         : error instanceof Error
           ? error.message
           : 'Unknown error';
-    console.warn('Web search failed:', message);
+    console.warn('[search API] Web search failed:', message);
     return `[Web search failed: ${message}]`;
   }
 }

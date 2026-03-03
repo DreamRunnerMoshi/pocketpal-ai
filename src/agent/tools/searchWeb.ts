@@ -11,6 +11,9 @@ export const searchWebTool = new DynamicStructuredTool({
     query: z.string().describe('The search query to look up on the web'),
   }),
   func: async (input: {query: string}) => {
-    return searchWebApi(input.query, SERPER_API_KEY);
+    console.log('[search_web] called with query:', input.query);
+    const result = await searchWebApi(input.query, SERPER_API_KEY);
+    console.log('[search_web] result length:', result.length, 'preview:', result.slice(0, 350) + (result.length > 350 ? '...' : ''));
+    return result;
   },
 });
