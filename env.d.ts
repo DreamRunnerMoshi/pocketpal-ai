@@ -21,4 +21,7 @@ declare module '@env' {
   // Google Sign-In Configuration
   export const GOOGLE_IOS_CLIENT_ID: string;
   export const GOOGLE_WEB_CLIENT_ID: string;
+
+  // Web search (Serper)
+  export const SERPER_API_KEY: string;
 }

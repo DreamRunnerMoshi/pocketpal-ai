@@ -3,7 +3,7 @@ import {chatTemplates} from '../utils/chat';
 import {defaultCompletionParams} from '../utils/completionSettingsVersions';
 import {Platform} from 'react-native';
 
-export const MODEL_LIST_VERSION = 14;
+export const MODEL_LIST_VERSION = 16;
 
 const iosOnlyModels: Model[] = [];
 
@@ -235,6 +235,98 @@ const crossPlatformModels: Model[] = [
       lfs: {
         oid: '2c63dde5f2c9ab1fd64d47dee2d34dade6ba9ff62442d1d20b5342310c982081',
         size: 2438740384,
+        pointerSize: 135,
+      },
+      canFitInStorage: true,
+    },
+  },
+  // -------- Qwen3 --------
+  {
+    id: 'ggml-org/Qwen3-4B-Instruct-2507-Q8_0-GGUF/qwen3-4b-instruct-2507-q8_0.gguf',
+    author: 'ggml-org',
+    repo: 'Qwen3-4B-Instruct-2507-Q8_0-GGUF',
+    name: 'Qwen3-4B-Instruct-2507 (Q8_0)',
+    type: 'Qwen',
+    capabilities: ['instructions', 'roleplay', 'multilingual', 'reasoning'],
+    size: 4280403520,
+    params: 4000000000,
+    isDownloaded: false,
+    downloadUrl:
+      'https://huggingface.co/ggml-org/Qwen3-4B-Instruct-2507-Q8_0-GGUF/resolve/main/qwen3-4b-instruct-2507-q8_0.gguf',
+    hfUrl: 'https://huggingface.co/ggml-org/Qwen3-4B-Instruct-2507-Q8_0-GGUF',
+    progress: 0,
+    filename: 'qwen3-4b-instruct-2507-q8_0.gguf',
+    isLocal: false,
+    origin: ModelOrigin.PRESET,
+    defaultChatTemplate: {...chatTemplates.qwen25},
+    chatTemplate: chatTemplates.qwen25,
+    defaultCompletionSettings: {
+      ...defaultCompletionParams,
+      n_predict: 500,
+      temperature: 0.5,
+    },
+    completionSettings: {
+      ...defaultCompletionParams,
+      n_predict: 500,
+      temperature: 0.5,
+    },
+    defaultStopWords: ['<|im_end|>'],
+    stopWords: ['<|im_end|>'],
+    supportsThinking: false, // Instruct-2507 is non-thinking; use Qwen3-Thinking for <think>
+    hfModelFile: {
+      rfilename: 'qwen3-4b-instruct-2507-q8_0.gguf',
+      url: 'https://huggingface.co/ggml-org/Qwen3-4B-Instruct-2507-Q8_0-GGUF/resolve/main/qwen3-4b-instruct-2507-q8_0.gguf',
+      size: 4280403520,
+      oid: '38f5e60417231dbd093bfde541c6e9010622b7ce',
+      lfs: {
+        oid: 'ae916ede1c010a26955ee8ae2e908bf8815a3f135ec860439ab924701c69d5f1',
+        size: 4280403520,
+        pointerSize: 135,
+      },
+      canFitInStorage: true,
+    },
+  },
+  // -------- Qwen3.5 --------
+  {
+    id: 'bartowski/Qwen_Qwen3.5-2B-GGUF/Qwen_Qwen3.5-2B-Q5_K_M.gguf',
+    author: 'bartowski',
+    repo: 'Qwen_Qwen3.5-2B-GGUF',
+    name: 'Qwen3.5-2B (Q5_K_M)',
+    type: 'Qwen',
+    capabilities: ['instructions', 'roleplay', 'multilingual', 'reasoning'],
+    size: 1315634944,
+    params: 2000000000,
+    isDownloaded: false,
+    downloadUrl:
+      'https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/Qwen_Qwen3.5-2B-Q5_K_M.gguf',
+    hfUrl: 'https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF',
+    progress: 0,
+    filename: 'Qwen_Qwen3.5-2B-Q5_K_M.gguf',
+    isLocal: false,
+    origin: ModelOrigin.PRESET,
+    defaultChatTemplate: {...chatTemplates.qwen25},
+    chatTemplate: chatTemplates.qwen25,
+    defaultCompletionSettings: {
+      ...defaultCompletionParams,
+      n_predict: 500,
+      temperature: 0.5,
+    },
+    completionSettings: {
+      ...defaultCompletionParams,
+      n_predict: 500,
+      temperature: 0.5,
+    },
+    defaultStopWords: ['<|im_end|>'],
+    stopWords: ['<|im_end|>'],
+    supportsThinking: true, // Qwen3.5 supports thinking and non-thinking modes
+    hfModelFile: {
+      rfilename: 'Qwen_Qwen3.5-2B-Q5_K_M.gguf',
+      url: 'https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/Qwen_Qwen3.5-2B-Q5_K_M.gguf',
+      size: 1315634944,
+      oid: '995b1c8af9906da7aeb9d03b5e67f113423dbe4a',
+      lfs: {
+        oid: '1e277e5d06f17a145fc0d6b1c152a0bcc6323ac2f87f1bacdbb85c71c8660e24',
+        size: 1315634944,
         pointerSize: 135,
       },
       canFitInStorage: true,

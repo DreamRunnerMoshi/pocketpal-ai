@@ -498,6 +498,11 @@
         "thinkingEnabled": "Thinking mode enabled",
         "thinkingDisabled": "Thinking mode disabled",
         "thinkText": "Think"
+      },
+      "webSearchToggle": {
+        "enableWebSearch": "Search web for this message",
+        "disableWebSearch": "Don't search web",
+        "webSearchText": "Web"
       }
     },
     "contentReportSheet": {

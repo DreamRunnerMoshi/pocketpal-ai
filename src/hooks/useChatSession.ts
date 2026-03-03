@@ -17,6 +17,8 @@ import {
   toApiCompletionParams,
   CompletionParams,
 } from '../utils/completionTypes';
+import {searchWeb} from '../api/search';
+import {SERPER_API_KEY} from '@env';
 
 // Helper function to prepare completion parameters using OpenAI-compatible messages API
 const prepareCompletion = async ({
@@ -237,10 +239,22 @@ export const useChatSession = (
       ? palStore.pals.find(p => p.id === activeSession.activePalId)
       : null;
 
-    const systemMessages = resolveSystemMessages({
+    let systemMessages = resolveSystemMessages({
       pal,
       model: modelStore.activeModel,
     });
+
+    // If web search is enabled, fetch results and prepend as system context
+    if (message.useWebSearch && message.text.trim()) {
+      const webResults = await searchWeb(message.text.trim(), SERPER_API_KEY);
+      if (webResults) {
+        const webContextMessage: {role: 'system'; content: string} = {
+          role: 'system',
+          content: `Relevant information from the web (use to inform your answer, cite when appropriate):\n\n${webResults}`,
+        };
+        systemMessages = [webContextMessage, ...systemMessages];
+      }
+    }
 
     // Prepare completion parameters and create message record
     const {cleanCompletionParams, messageInfo} = await prepareCompletion({

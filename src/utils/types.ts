@@ -107,6 +107,8 @@ export namespace MessageType {
     text: string;
     type: 'text';
     imageUris?: string[]; // Optional array of image URIs for multimodal messages
+    /** When true, run web search for this message and inject results into context */
+    useWebSearch?: boolean;
   }
 
   export interface Text extends Base, PartialText {
